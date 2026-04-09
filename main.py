@@ -6,26 +6,28 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.filters import Command
 
-from config import BOT_TOKEN, STRIPE_SECRET
+from config import BOT_TOKEN, STRIPE_SECRET, CURRENT_EVENT_CHAT_ID
 from payments import create_payment_link
 
 app = FastAPI()
+
+# ❗ FIX: проверка токена
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN is None. Проверь .env файл")
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 stripe.api_key = STRIPE_SECRET
 
 
-@dp.message()
-async def get_id(message: types.Message):
-    print(message.chat.id)
+# ---------------- PRODUCTS ----------------
 
-# ---------------- BOT ----------------
 PRODUCTS = {
     "video_course": {
         "name": "🎥 Видео курс",
         "price": 1000,
-        "type": "digital"
+        "type": "video"
     },
     "event_access": {
         "name": "🎟 Доступ на ивент",
@@ -39,6 +41,9 @@ PRODUCTS = {
     }
 }
 
+
+# ---------------- START ----------------
+
 @dp.message(Command("start"))
 async def start(message: types.Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -48,48 +53,38 @@ async def start(message: types.Message):
 
     await message.answer("Выбери продукт 👇", reply_markup=kb)
 
-async def reminder(user_id):
-    await asyncio.sleep(3600)
 
-    if not user_bought(user_id): # type: ignore
-        await bot.send_message(
-            user_id,
-            "👀 Ты всё ещё не выбрал продукт"
-        )
-@dp.callback_query()
-async def cb(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
+# ---------------- CALLBACK ----------------
 
-    if callback.data == "video":
-        link = create_payment_link(user_id, "video", 1000)
-        await callback.message.answer(f"💳 Оплатить: {link}")
-
-    elif callback.data == "chat":
-        link = create_payment_link(user_id, "chat", 500)
-        await callback.message.answer(f"💳 Оплатить: {link}")
-
-        
 @dp.callback_query()
 async def buy(callback: types.CallbackQuery):
-    product = PRODUCTS[callback.data]
+    product_key = callback.data
+    user_id = callback.from_user.id
+
+    if product_key not in PRODUCTS:
+        return
+
+    product = PRODUCTS[product_key]
 
     link = create_payment_link(
-        user_id=callback.from_user.id,
-        product=callback.data,
+        user_id=user_id,
+        product=product_key,
         amount=product["price"]
     )
 
     await callback.message.answer(f"💳 Оплата: {link}")
 
 
-    await bot.send_message(user_id, "💬 Подписка активирована") # type: ignore
+# ---------------- EVENT ACCESS ----------------
 
+async def send_event_access(user_id: int):
+    invite = await bot.create_chat_invite_link(
+        chat_id=CURRENT_EVENT_CHAT_ID,
+        member_limit=1
+    )
 
-    if subscription_expired(user_id): # type: ignore
-     await bot.send_message(user_id, "⛔ подписка окончена") # type: ignore
+    await bot.send_message(user_id, f"🎟 Доступ: {invite.invite_link}")
 
-
-     await stripe.Subscription.delete(sub_id) # type: ignore
 
 # ---------------- WEBHOOK ----------------
 
@@ -103,29 +98,29 @@ async def stripe_webhook(request: Request):
         user_id = int(session["metadata"]["tg_id"])
         product = session["metadata"]["product"]
 
-        if product == "video":
-            await bot.send_message(user_id, "✅ Оплата прошла!")
+        await bot.send_message(user_id, "✅ Оплата прошла!")
+
+        if product == "video_course":
             await bot.send_video(
                 user_id,
                 video="FILE_ID",
                 protect_content=True
             )
-            
-        if product_type == "video_course": # type: ignore
-         await bot.send_video(user_id, video="FILE_ID")
 
-    elif product_type == "event_access": # type: ignore
-      await send_event_access(user_id) # type: ignore
+        elif product == "event_access":
+            await send_event_access(user_id)
 
-    elif product_type == "subscription": # pyright: ignore[reportUndefinedVariable]
-     await add_subscription(user_id) # type: ignore
+        elif product == "subscription":
+            await bot.send_message(user_id, "💬 Подписка активирована")
 
     return {"ok": True}
 
-# ---------------- START ----------------
+
+# ---------------- RUN BOT ----------------
 
 async def run_bot():
     await dp.start_polling(bot)
+
 
 @app.on_event("startup")
 async def startup():

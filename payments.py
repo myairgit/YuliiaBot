@@ -1,9 +1,9 @@
-import stripe # type: ignore
-from config import STRIPE_SECRET, DOMAIN # type: ignore
+import stripe
+from config import STRIPE_SECRET, DOMAIN
 
 stripe.api_key = STRIPE_SECRET
 
-def create_payment_link(user_id, product):
+def create_payment_link(user_id, product, amount):
     session = stripe.checkout.Session.create(
         payment_method_types=['card'],
         line_items=[{
@@ -12,7 +12,7 @@ def create_payment_link(user_id, product):
                 'product_data': {
                     'name': product,
                 },
-                'unit_amount': 1000,
+                'unit_amount': amount,
             },
             'quantity': 1,
         }],

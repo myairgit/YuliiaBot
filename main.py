@@ -7,12 +7,18 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.filters import Command
 
 from config import BOT_TOKEN, STRIPE_SECRET
+from payments import create_payment_link
 
 app = FastAPI()
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 stripe.api_key = STRIPE_SECRET
+
+
+@dp.message()
+async def get_id(message: types.Message):
+    print(message.chat.id)
 
 # ---------------- BOT ----------------
 
@@ -26,8 +32,15 @@ async def start(message: types.Message):
 
 @dp.callback_query()
 async def cb(callback: types.CallbackQuery):
-    await callback.message.answer("Оплата пока через webhook")
+    user_id = callback.from_user.id
 
+    if callback.data == "video":
+        link = create_payment_link(user_id, "video", 1000)
+        await callback.message.answer(f"💳 Оплатить: {link}")
+
+    elif callback.data == "chat":
+        link = create_payment_link(user_id, "chat", 500)
+        await callback.message.answer(f"💳 Оплатить: {link}")
 # ---------------- WEBHOOK ----------------
 
 @app.post("/webhook")
@@ -37,12 +50,18 @@ async def stripe_webhook(request: Request):
     if data["type"] == "checkout.session.completed":
         session = data["data"]["object"]
 
-        user_id = session["metadata"]["tg_id"]
+        user_id = int(session["metadata"]["tg_id"])
+        product = session["metadata"]["product"]
 
-        await bot.send_message(user_id, "Оплата прошла ✅")
+        if product == "video":
+            await bot.send_message(user_id, "✅ Оплата прошла!")
+            await bot.send_video(
+                user_id,
+                video="FILE_ID",
+                protect_content=True
+            )
 
     return {"ok": True}
-
 
 # ---------------- START ----------------
 

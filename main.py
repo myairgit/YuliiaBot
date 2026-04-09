@@ -20,6 +20,9 @@ dp = Dispatcher()
 
 stripe.api_key = STRIPE_SECRET
 
+@app.get("/")
+async def root():
+    return {"status": "bot is running"}
 
 # ---------------- PRODUCTS ----------------
 

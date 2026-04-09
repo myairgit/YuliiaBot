@@ -21,15 +21,41 @@ async def get_id(message: types.Message):
     print(message.chat.id)
 
 # ---------------- BOT ----------------
+PRODUCTS = {
+    "video_course": {
+        "name": "🎥 Видео курс",
+        "price": 1000,
+        "type": "digital"
+    },
+    "event_access": {
+        "name": "🎟 Доступ на ивент",
+        "price": 500,
+        "type": "event"
+    },
+    "subscription": {
+        "name": "💬 Подписка VIP",
+        "price": 1500,
+        "type": "subscription"
+    }
+}
 
 @dp.message(Command("start"))
 async def start(message: types.Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎥 Видео", callback_data="video")],
-        [InlineKeyboardButton(text="💬 Чат", callback_data="chat")]
+        [InlineKeyboardButton(text=p["name"], callback_data=k)]
+        for k, p in PRODUCTS.items()
     ])
-    await message.answer("Выбери продукт:", reply_markup=kb)
 
+    await message.answer("Выбери продукт 👇", reply_markup=kb)
+
+async def reminder(user_id):
+    await asyncio.sleep(3600)
+
+    if not user_bought(user_id): # type: ignore
+        await bot.send_message(
+            user_id,
+            "👀 Ты всё ещё не выбрал продукт"
+        )
 @dp.callback_query()
 async def cb(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -41,6 +67,30 @@ async def cb(callback: types.CallbackQuery):
     elif callback.data == "chat":
         link = create_payment_link(user_id, "chat", 500)
         await callback.message.answer(f"💳 Оплатить: {link}")
+
+        
+@dp.callback_query()
+async def buy(callback: types.CallbackQuery):
+    product = PRODUCTS[callback.data]
+
+    link = create_payment_link(
+        user_id=callback.from_user.id,
+        product=callback.data,
+        amount=product["price"]
+    )
+
+    await callback.message.answer(f"💳 Оплата: {link}")
+
+
+    await bot.send_message(user_id, "💬 Подписка активирована") # type: ignore
+
+
+    if subscription_expired(user_id): # type: ignore
+     await bot.send_message(user_id, "⛔ подписка окончена") # type: ignore
+
+
+     await stripe.Subscription.delete(sub_id) # type: ignore
+
 # ---------------- WEBHOOK ----------------
 
 @app.post("/webhook")
@@ -60,6 +110,15 @@ async def stripe_webhook(request: Request):
                 video="FILE_ID",
                 protect_content=True
             )
+            
+        if product_type == "video_course": # type: ignore
+         await bot.send_video(user_id, video="FILE_ID")
+
+    elif product_type == "event_access": # type: ignore
+      await send_event_access(user_id) # type: ignore
+
+    elif product_type == "subscription": # pyright: ignore[reportUndefinedVariable]
+     await add_subscription(user_id) # type: ignore
 
     return {"ok": True}
 
